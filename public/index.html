@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>聊天室</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        .Login{
+            display: flex;
+            flex:1;
+            text-align: center;
+            flex-direction: column;
+        }
+        .content{
+            display: flex;
+            height:400px;
+        }
+        .leftUserList{
+            flex:1;
+            border:1px solid red;
+            position: relative;
+        }
+        .socketWidget{
+            flex:2;
+            border:1px solid blue;
+            position: relative;
+        }
+        .sigout{
+            position: absolute;
+            bottom: 0px;
+        }
+        .message{
+            height: 20px;
+            background-color: yellowgreen;
+            color:white
+        }
+        .userInput{
+            position: absolute;
+            bottom: 0px;
+            height: 50px;
+            background-color: #ccc;
+            width: 100%;
+            display: flex;
+            align-items:center 
+        }
+        .userInput input{
+           height:25px;
+           width: 70%;
+        }
+        .userInput button{
+            width: 30%
+        }
+        .user{
+            text-align: right
+        }
+        .nouser{
+            text-align: left
+        }
+        .span_text{
+            display: inline-block;width:30px;height:30px;border-radius: 15px;background: red;line-height: 30px;text-align: center;overflow: hidden
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        
+        <!-- 登录页面 -->
+
+        <div class="Login" v-if='logBol'>
+            <h1>欢迎登录</h1>
+            <input type="text" v-model='user.userName'>
+            <button type="button" @click='login'>登录</button>
+        </div>
+
+        <!-- 内容页面 -->
+        <div class="content" v-else>
+            <div class="leftUserList">
+                在线人员{{platform.count}}人
+                <p v-for='(item, index) in platform.userList'>
+                    {{item.username}}
+                </p>  
+                
+                <div class="sigout">
+                    <div style="border:1px solid gray;"></div>
+                        当前用户：{{user.userName}}
+                    <button type="button" @click='singOut'>退出</button>
+                </div>
+            </div>
+            <div class="socketWidget">
+                <div class="message">
+                    {{message}}
+                </div>
+                <!-- <div style="border:1px solid red;"></div> -->
+                <div class="UserText">
+                    <div v-for='(item, index) in msgList' :class="[item.isMe ? 'user':'nouser']">
+                        <p  ><span class="span_text">{{item.userName | getAvatar}} </span>: {{item.content}}</p>
+                    </div>
+                </div>
+                <div class="userInput">
+                    <input type="text" v-model='content'>
+                    <button type="button" @click='send'>发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script src="./vue.js"></script>
+<script>
+    const app = new Vue({
+       el:'#app',
+       data(){
+            return {
+                logBol:true,
+                user:{
+                    userName:'',
+                    uId:''
+                },
+                // 平台数据
+                platform:{
+                    userList:[], //用户列表
+                    count:0
+                },
+                message:'',
+                content:'',
+                msgList:[
+                    // {
+                    //     content:'123',
+                    //     userName:'song'
+                    // },
+                    // {
+                    //     content:'aassd',
+                    //     isMe:true,
+                    //     userName:'james'
+                    // },
+                    // {
+                    //     content:'Vue',
+                    //     isMe:true,
+                    //     userName:'miro'
+                    // }
+                ]
+            }
+        },
+        created(){
+            
+        },
+        methods:{
+            login(){
+                if(this.user.userName == ''){
+                    alert('请输入用户名')
+                    return
+                }
+                this.user.uId = this.genUid();
+                //  登录时首先初始化Websocket
+                this.initSocket();
+            },
+            initSocket(){
+                this.Socket = io.connect();
+                this.Socket.emit('login', this.user)        //将当前登录信息传入后台
+                // 接收到后台发来的在线用户，人数， 以及当前用户
+                this.Socket.on('login', res=>{
+                    this.proccessPlatform('login', res)
+                });
+                // 退出事件发送过来后，当前用户是接收不到这个事件中的数据的
+                this.Socket.on('logout', res=>{
+                    this.proccessPlatform('logout', res)
+                })
+                // 后台广播数据
+                this.Socket.on('message', res=>{
+                    console.log(res);
+                    // 接收到的都是用户发来的消息，肯定不是自己的
+                    res.isMe = false;
+                    this.msgList.push(res)
+                })
+            },
+            // 通用方法
+            proccessPlatform(state, res){
+                console.log(res);
+                // console.log(res);
+                // 将传来的对象转换为数组
+                const arr = [];
+                for(let [k, v] of Object.entries(res.onlineUsers)){
+                    arr.push({
+                        uid:k,
+                        username:v
+                    })
+                }
+                this.platform.userList = arr;
+                this.platform.count = res.onlineCount;
+                // console.log(this.platform)
+                this.logBol = false;
+                // console.log(state);
+                this.message = `${res.user.userName}${state === 'login' ? '登录' : '离开了'}聊天室！`
+            },
+            // 退出
+            singOut(){
+                // 关闭socket
+                this.Socket.close();
+                this.logBol = true;
+            },
+            // 给后台发送用户输入消息
+            send(){
+                const req = {
+                    ...this.user,                   //当前用户发送
+                    content:this.content,           // 输入框中的值
+                }
+                this.Socket.emit('message', req)            // 告诉后台用户发送了消息
+                // 我自己发的消息先行存在本地
+                this.msgList.push({
+                    ...req,
+                    isMe:true                       // 判断是不是我发送的消息
+                })
+                // console.log(this.msgList)
+                this.content = ''                   // 发送成功后清空输入框中的值
+            },
+            //  生成用户Id
+            genUid(){
+                // 时间戳 + 随机数
+                return `fc_${new Date().getTime() + ''}${Math.floor(Math.random()*89900)}`
+            }
+        },
+        // 获取头像
+        filters:{
+            getAvatar(val){
+                console.log(val)
+                return val.charAt(0)
+            }
+        },
+    })
+</script>
+</html>
